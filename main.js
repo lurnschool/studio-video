@@ -5,6 +5,7 @@ const els = {
   preview: $('#previewVideo'), empty: $('#emptyPreview'), caption: $('#previewCaption'),
   play: $('#playBtn'), seek: $('#projectSeek'), time: $('#timeLabel'), mute: $('#muteBtn'),
   format: $('#formatSelect'), captionInput: $('#captionInput'), inspector: $('#clipInspector'),
+  motionPreset: $('#motionPreset'), motionStart: $('#motionStart'), motionDuration: $('#motionDuration'), motionColor: $('#motionColor'),
   addClip: $('#addClipBtn'), export: $('#exportBtn'), modal: $('#exportModal'),
   exportStatus: $('#exportStatus'), progress: $('#exportProgress'), cancelExport: $('#cancelExportBtn'), toast: $('#toast'),
 };
@@ -29,6 +30,36 @@ function formatTime(seconds) {
 function clipDuration(clip) { return Math.max(0, clip.end - clip.start); }
 function totalDuration() { return state.clips.reduce((sum, clip) => sum + clipDuration(clip), 0); }
 function getMedia(clip) { return state.media.find((item) => item.id === clip.mediaId); }
+
+function motionSettings() {
+  return {
+    text: els.captionInput.value.trim(), preset: els.motionPreset.value,
+    start: Math.max(0, Number(els.motionStart.value) || 0),
+    duration: Math.max(0.5, Number(els.motionDuration.value) || 3),
+    color: els.motionColor.value,
+  };
+}
+
+function motionFrame(position, settings = motionSettings()) {
+  const local = position - settings.start;
+  if (!settings.text || local < 0 || local > settings.duration) return null;
+  const enter = Math.min(1, local / 0.45);
+  const exit = Math.min(1, (settings.duration - local) / 0.35);
+  return { opacity: Math.max(0, Math.min(enter, exit)), enter, local };
+}
+
+function renderMotionPreview(position) {
+  const settings = motionSettings(), frame = motionFrame(position, settings);
+  els.caption.hidden = !frame || !state.clips.length;
+  if (!frame) return;
+  els.caption.className = `preview-caption motion-${settings.preset}`;
+  els.caption.style.setProperty('--motion-accent', settings.color);
+  els.caption.style.opacity = frame.opacity;
+  els.caption.textContent = settings.preset === 'type' ? settings.text.slice(0, Math.max(1, Math.ceil(settings.text.length * frame.enter))) : settings.text;
+  if (settings.preset === 'pop') els.caption.style.transform = `translateX(-50%) scale(${0.65 + 0.35 * frame.enter})`;
+  else if (settings.preset === 'lower') els.caption.style.transform = `translateX(${(frame.enter - 1) * 55}px)`;
+  else els.caption.style.transform = `translateY(${(1 - frame.enter) * 25}px)`;
+}
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -104,8 +135,7 @@ function render() {
   els.addClip.disabled = !state.media.length;
   els.empty.hidden = !!state.clips.length;
   els.preview.hidden = !state.clips.length;
-  els.caption.textContent = els.captionInput.value.trim();
-  els.caption.hidden = !els.caption.textContent || !state.clips.length;
+  renderMotionPreview(projectPosition());
   els.media.innerHTML = state.media.length ? state.media.map((media) => `
     <div class="media-item"><img class="media-thumb" src="${media.thumbnail}" alt="" /><div class="media-meta"><strong title="${escapeHtml(media.name)}">${escapeHtml(media.name)}</strong><small>${formatTime(media.duration)}</small></div><button class="media-add" data-add="${media.id}" aria-label="Ajouter ${escapeHtml(media.name)} à la timeline">＋</button></div>`).join('') : '<div class="empty-media">Vos clips apparaîtront ici.</div>';
   els.timeline.innerHTML = state.clips.length ? state.clips.map((clip, index) => {
@@ -140,6 +170,7 @@ function updateTime() {
   els.play.textContent = state.playing ? 'Ⅱ' : '▶';
   els.play.setAttribute('aria-label', state.playing ? 'Pause' : 'Lire');
   els.mute.textContent = state.muted ? '♩' : '♫';
+  renderMotionPreview(position);
 }
 
 async function loadClip(index, autoplay) {
@@ -225,7 +256,10 @@ els.inspector.addEventListener('change', (event) => {
   clip.start = start; clip.end = end;
   stopPlayback(); loadClip(state.currentIndex, false); render();
 });
-els.captionInput.addEventListener('input', () => { els.caption.textContent = els.captionInput.value.trim(); els.caption.hidden = !els.caption.textContent || !state.clips.length; });
+for (const control of [els.captionInput, els.motionPreset, els.motionStart, els.motionDuration, els.motionColor]) {
+  control.addEventListener('input', updateTime);
+  control.addEventListener('change', updateTime);
+}
 els.format.addEventListener('change', () => { $('#previewFrame').style.aspectRatio = els.format.value.replace(':', '/'); $('#previewFrame').style.height = 'auto'; $('#previewFrame').style.maxHeight = '55vh'; });
 els.play.addEventListener('click', async () => {
   if (state.playing) { stopPlayback(); return; }
@@ -248,17 +282,20 @@ els.preview.addEventListener('ended', () => {
 els.seek.addEventListener('input', () => seekTo(Number(els.seek.value) / 1000 * totalDuration()));
 els.mute.addEventListener('click', () => { state.muted = !state.muted; els.preview.muted = state.muted; updateTime(); });
 
-function drawFrame(context, canvas, video, caption) {
+function drawFrame(context, canvas, video, settings, projectTime) {
   context.fillStyle = '#050608'; context.fillRect(0, 0, canvas.width, canvas.height);
   const scale = Math.min(canvas.width / video.videoWidth, canvas.height / video.videoHeight);
   if (Number.isFinite(scale) && scale > 0) {
     const width = video.videoWidth * scale, height = video.videoHeight * scale;
     context.drawImage(video, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
   }
-  if (caption) {
+  const frame = motionFrame(projectTime, settings);
+  if (frame) {
+    const caption = settings.preset === 'type' ? settings.text.slice(0, Math.max(1, Math.ceil(settings.text.length * frame.enter))) : settings.text;
+    context.save(); context.globalAlpha = frame.opacity;
     const fontSize = Math.round(canvas.height * 0.052);
     context.font = `800 ${fontSize}px Manrope, sans-serif`;
-    context.textAlign = 'center'; context.textBaseline = 'bottom'; context.lineJoin = 'round';
+    context.textAlign = settings.preset === 'lower' ? 'left' : 'center'; context.textBaseline = 'bottom'; context.lineJoin = 'round';
     const maxWidth = canvas.width * 0.82;
     const words = caption.split(/\s+/); const lines = []; let line = '';
     for (const word of words) {
@@ -267,10 +304,21 @@ function drawFrame(context, canvas, video, caption) {
     }
     if (line) lines.push(line);
     lines.slice(0, 4).forEach((text, index) => {
-      const y = canvas.height * 0.88 - (Math.min(lines.length, 4) - 1 - index) * fontSize * 1.2;
-      context.lineWidth = Math.max(3, fontSize * 0.16); context.strokeStyle = '#000b'; context.strokeText(text, canvas.width / 2, y, maxWidth);
-      context.fillStyle = 'white'; context.fillText(text, canvas.width / 2, y, maxWidth);
+      const y = canvas.height * 0.88 - (Math.min(lines.length, 4) - 1 - index) * fontSize * 1.2 + (1 - frame.enter) * 25;
+      const x = settings.preset === 'lower' ? canvas.width * 0.09 + (frame.enter - 1) * 55 : canvas.width / 2;
+      if (settings.preset === 'pop' || settings.preset === 'lower') {
+        const width = Math.min(maxWidth, context.measureText(text).width + fontSize * 0.65);
+        context.fillStyle = settings.preset === 'pop' ? settings.color : '#090914df';
+        context.fillRect(settings.preset === 'lower' ? x - fontSize * 0.25 : x - width / 2, y - fontSize * 1.05, width, fontSize * 1.25);
+        if (settings.preset === 'lower') { context.fillStyle = settings.color; context.fillRect(x - fontSize * 0.32, y - fontSize * 1.05, fontSize * 0.08, fontSize * 1.25); }
+      }
+      if (settings.preset === 'fade') {
+        context.fillStyle = settings.color; context.fillRect(x - Math.min(maxWidth, context.measureText(text).width) / 2, y + fontSize * 0.1, Math.min(maxWidth, context.measureText(text).width), Math.max(3, fontSize * 0.05));
+      }
+      if (settings.preset !== 'pop') { context.lineWidth = Math.max(3, fontSize * 0.16); context.strokeStyle = '#000b'; context.strokeText(text, x, y, maxWidth); }
+      context.fillStyle = settings.preset === 'pop' ? '#100c17' : 'white'; context.fillText(text, x, y, maxWidth);
     });
+    context.restore();
   }
 }
 
@@ -301,7 +349,7 @@ async function exportVideo() {
   recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
   const stopped = new Promise((resolve, reject) => { recorder.onstop = resolve; recorder.onerror = (event) => reject(event.error || new Error('Échec de l’export.')); });
   let frameId = 0;
-  const caption = els.captionInput.value.trim();
+  const motion = motionSettings();
   const total = totalDuration();
   let elapsed = 0;
   let recorderStarted = false;
@@ -318,13 +366,13 @@ async function exportVideo() {
         await waitEvent(video, 'seeked', 12000);
       }
       if (video.readyState < 2) await waitEvent(video, 'loadeddata', 12000);
-      drawFrame(context, canvas, video, caption);
+      drawFrame(context, canvas, video, motion, elapsed);
       if (!recorderStarted) { recorder.start(1000); recorderStarted = true; }
       await video.play();
       await new Promise((resolve) => {
         const tick = () => {
           if (state.cancel || video.currentTime >= clip.end - 0.02 || video.ended) { video.pause(); resolve(); return; }
-          drawFrame(context, canvas, video, caption);
+          drawFrame(context, canvas, video, motion, elapsed + Math.max(0, video.currentTime - clip.start));
           els.progress.style.width = `${Math.min(100, (elapsed + Math.max(0, video.currentTime - clip.start)) / total * 100)}%`;
           frameId = requestAnimationFrame(tick);
         };
