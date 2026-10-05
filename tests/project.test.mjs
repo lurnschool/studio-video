@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {splitAt,removeRange,validateProject,duration,locate} from '../project.mjs';
+const project=()=>({version:1,format:'16:9',media:[{id:'m',name:'test.mp4',duration:10,size:100}],clips:[{id:'c',mediaId:'m',start:0,end:10,zoom:1.2}],motions:[{id:'a',text:'Un titre',preset:'editorial',position:'left',color:'#6736ee',start:2,duration:2,accent:'titre',detail:''},{id:'b',text:'Après',preset:'gradient',position:'center',color:'#6736ee',start:8,duration:1,accent:'APRÈS',detail:''}]});
+test('split preserves duration and source continuity',()=>{const p=project();const clips=splitAt(p.clips,3.25,'d');assert.equal(duration(clips),10);assert.equal(clips[0].end,clips[1].start);assert.equal(clips[1].zoom,1.2);assert.equal(locate(clips,3.25).clip.id,'d');});
+test('split rejects a border',()=>assert.equal(splitAt(project().clips,0,'x'),null));
+test('remove middle preserves source before and after',()=>{const p=removeRange(project(),3,5);assert.deepEqual(p.clips.map(c=>[c.start,c.end]),[[0,3],[5,10]]);assert.equal(duration(p.clips),8);assert.equal(p.motions[0].duration,1);assert.equal(p.motions[1].start,6);});
+test('removal across clips handles joins without zero duration clips',()=>{const p=project();p.clips=splitAt(p.clips,4,'d');const q=removeRange(p,2,6);assert.deepEqual(q.clips.map(c=>[c.start,c.end]),[[0,2],[6,10]]);assert.equal(q.motions.length,1);});
+test('remove entire timeline removes contained motions',()=>{const p=removeRange(project(),0,10);assert.equal(p.clips.length,0);assert.equal(p.motions.length,0);});
+test('project round trip strips browser data',()=>{const p=project();p.media[0].url='blob:secret';const result=validateProject(JSON.parse(JSON.stringify(p)));assert.equal(result.media[0].url,undefined);assert.equal(result.clips[0].zoom,1.2);assert.equal(result.motions[0].accent,'titre');});
+test('invalid clips and missing media rejected',()=>{for(const change of [p=>p.clips[0].end=20,p=>p.clips[0].start=-1,p=>p.clips[0].zoom=99,p=>p.clips[0].mediaId='nope']){const p=project();change(p);assert.throws(()=>validateProject(p));}});
+test('invalid animation data rejected',()=>{for(const change of [p=>p.motions[0].duration=NaN,p=>p.motions[0].preset='javascript',p=>p.motions[0].color='red;bad',p=>p.motions[0].accent={x:1}]){const p=project();change(p);assert.throws(()=>validateProject(p));}});
