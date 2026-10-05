@@ -7,7 +7,7 @@ const $ = selector => document.querySelector(selector);
 const video = $('#previewVideo'), canvas = $('#previewCanvas'), ctx = canvas.getContext('2d');
 const state = { media: [], clips: [], motions: [], format: '16:9', selected: null, motionId: null, position: 0, playing: false, loading: false, exporting: false, cancel: false, muted: false, analyzing: false };
 const history = [], future = [];
-let toastTimer, loadToken = 0, resultUrl, aiController;
+let toastTimer, loadToken = 0, resultUrl, aiController, localAiSession=false;
 const esc = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const mediaFor = clip => state.media.find(item => item.id === clip?.mediaId);
 const total = () => duration(state.clips);
@@ -149,16 +149,16 @@ $('#addNodeBtn').addEventListener('click',()=>{const nodes=readNodeForm();if(nod
 $('#diagramNodes').addEventListener('click',event=>{const button=event.target.closest('[data-remove-node]');if(button){const nodes=readNodeForm().filter((_,i)=>i!==Number(button.dataset.removeNode));fillNodeForm({nodes});}});
 function aiAddress(){const raw=$('#aiEndpoint').value.trim();if(!raw)throw new Error('Configurez le service IA pour analyser votre voix.');const url=new URL(raw);if(url.username||url.password||url.search||url.hash||url.pathname!=='/'||!(url.protocol==='https:'||(url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname))))throw new Error('Utilisez une adresse HTTPS de service, ou une adresse locale.');return url.origin;}
 if(location.port==='8787')$('#aiEndpoint').value=location.origin;
-$('#checkAiBtn').addEventListener('click',async()=>{try{const response=await fetch(`${aiAddress()}/api/health`,{signal:AbortSignal.timeout(10000)});if(!response.ok)throw new Error('Service indisponible à cette adresse.');const data=await response.json();$('#aiSummary').textContent=data.ready?'Service IA disponible. Saisissez son code d’accès et autorisez l’envoi audio.':'Serveur joignable. La clé OpenAI et le code d’accès restent à configurer.';}catch(error){$('#aiSummary').textContent=error.message;}});
+$('#checkAiBtn').addEventListener('click',async()=>{try{const endpoint=aiAddress(),response=await fetch(`${endpoint}/api/health`,{signal:AbortSignal.timeout(10000)});if(!response.ok)throw new Error('Service indisponible à cette adresse.');const data=await response.json();$('#aiSummary').textContent=data.ready?(localAiSession&&endpoint===location.origin?'Service IA local connecté. Autorisez l’envoi audio pour générer vos visuels.':'Service IA disponible. Saisissez son code d’accès et autorisez l’envoi audio.'):'Serveur joignable. La clé OpenAI et le code d’accès restent à configurer.';}catch(error){$('#aiSummary').textContent=error.message;}});
 $('#generateMotionBtn').addEventListener('click',async()=>{
  if(state.analyzing||state.exporting||!state.clips.length)return;
- let endpoint;try{endpoint=aiAddress();if(!$('#aiToken').value.trim())throw new Error('Saisissez le code d’accès privé du service.');if(!$('#aiConsent').checked)throw new Error('Autorisez l’envoi de l’audio pour générer les visuels.');}catch(error){$('#aiConnection').open=true;$('#aiSummary').textContent=error.message;return;}
+ let endpoint;try{endpoint=aiAddress();if(!(localAiSession&&endpoint===location.origin)&&!$('#aiToken').value.trim())throw new Error('Saisissez le code d’accès privé du service.');if(!$('#aiConsent').checked)throw new Error('Autorisez l’envoi de l’audio pour générer les visuels.');}catch(error){$('#aiConnection').open=true;$('#aiSummary').textContent=error.message;return;}
  pause();state.analyzing=true;state.cancel=false;aiController=new AbortController();
  $('.workspace').inert=true;$('.topbar').inert=true;$('#taskTitle').textContent='Création du motion design';$('#exportProgress').style.width='8%';$('#exportModal').hidden=false;render();
  try{
    const wav=await montageAudio(state.clips,state.media,message=>{$('#exportStatus').textContent=message;},aiController.signal);
    $('#exportProgress').style.width='35%';$('#exportStatus').textContent='Transcription de la voix et composition des schémas…';
-   const response=await fetch(`${endpoint}/api/analyze`,{method:'POST',headers:{'Content-Type':'audio/wav',Authorization:`Bearer ${$('#aiToken').value.trim()}`},body:wav,signal:AbortSignal.any([aiController.signal,AbortSignal.timeout(250000)])});
+   const response=await fetch(`${endpoint}/api/analyze`,{method:'POST',headers:{'Content-Type':'audio/wav',...(localAiSession&&endpoint===location.origin?{}:{Authorization:`Bearer ${$('#aiToken').value.trim()}`})},body:wav,signal:AbortSignal.any([aiController.signal,AbortSignal.timeout(250000)])});
    const data=await response.json();if(!response.ok)throw new Error(data.error||'Le service IA n’a pas terminé l’analyse.');
    const words=validateWords(data.words,total()),motions=planToMotions(data.plan,words,total());
    if(state.cancel)return;
@@ -181,3 +181,10 @@ function animateDemo(){if($('#demoModal').hidden)return;const time=((performance
 $('#demoMotionBtn').addEventListener('click',()=>{$('#demoModal').hidden=false;$('.workspace').inert=true;$('.topbar').inert=true;demoStart=performance.now();animateDemo();});
 $('#closeDemo').addEventListener('click',()=>{$('#demoModal').hidden=true;$('.workspace').inert=false;$('.topbar').inert=false;cancelAnimationFrame(demoFrame);});
 $('.demo-types').addEventListener('click',event=>{const button=event.target.closest('[data-demo]');if(button){demoKind=button.dataset.demo;demoStart=performance.now();$('.demo-top h2').textContent=demoScenes[demoKind].text;for(const item of $('.demo-types').children)item.classList.toggle('active',item===button);}});
+
+async function connectLocalStudio(){
+ if(location.protocol!=='http:'||!['localhost','127.0.0.1'].includes(location.hostname))return;
+ try{const health=await fetch('/api/health',{signal:AbortSignal.timeout(3000)});if(!health.ok)return;const status=await health.json();if(!status.localSession)return;const response=await fetch('/api/local-session',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!response.ok)return;const session=await response.json();localAiSession=true;$('#aiEndpoint').value=location.origin;$('#aiToken').hidden=true;$('label[for="aiToken"]').hidden=true;$('#aiSummary').textContent=session.ready?'Service IA local connecté. Autorisez l’envoi audio pour générer vos visuels.':'Studio local connecté. La clé OpenAI reste à configurer.';}catch{}
+}
+$('#aiEndpoint').addEventListener('input',()=>{const same=localAiSession&&$('#aiEndpoint').value.trim().replace(/\/$/,'')===location.origin;$('#aiToken').hidden=same;$('label[for="aiToken"]').hidden=same;});
+void connectLocalStudio();

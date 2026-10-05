@@ -7,3 +7,25 @@ test('analysis rejects missing auth and unauthorized origins',()=>withServer({ap
 test('authorized audio reaches analyzer, no credentials returned',()=>withServer({apiKey:'test-not-a-real-key',token:'test-private-token',analyze:async bytes=>({duration:wavDuration(bytes),words:[],plan:{scenes:[]}})},async base=>{const response=await fetch(base+'/api/analyze',{method:'POST',headers:{Authorization:'Bearer test-private-token','Content-Type':'audio/wav'},body:await audio()});assert.equal(response.status,200);const text=await response.text();assert.match(text,/"duration":6/);assert.ok(!text.includes('key'));}));
 test('provider integration asks for word timings and a strict plan',async()=>{let calls=0;const result=await analyzeAudio(await audio(),{apiKey:'test-only',fetchImpl:async(url,options)=>{calls++;if(url.endsWith('transcriptions')){assert.equal(options.body.get('model'),'whisper-1');assert.equal(options.body.get('timestamp_granularities[]'),'word');return Response.json({words:[{word:'Bonjour',start:0,end:1}]});}const body=JSON.parse(options.body);assert.equal(body.store,false);assert.equal(body.text.format.strict,true);return Response.json({status:'completed',output:[{content:[{type:'output_text',text:'{"scenes":[]}'}]}]});}});assert.equal(calls,2);assert.equal(result.words[0].word,'Bonjour');});
 test('provider refusal and invalid timestamps cannot generate motions',async()=>{await assert.rejects(analyzeAudio(await audio(),{apiKey:'test',fetchImpl:async()=>Response.json({words:[{word:'x',start:0,end:100}]})}));});
+test('local session requires same-origin browser and stays local',()=>withServer({apiKey:'test',token:'private',localSession:true,origins:['https://lurnschool.github.io'],analyze:async()=>({words:[],plan:{scenes:[]}})},async base=>{
+ assert.equal((await fetch(base+'/api/local-session',{method:'POST'})).status,403);
+ // Origin must also be allowed by the server's CORS configuration.
+ assert.equal((await fetch(base+'/api/local-session',{method:'POST',headers:{Origin:'https://lurnschool.github.io','Sec-Fetch-Site':'same-origin'}})).status,403);
+ assert.equal((await(await fetch(base+'/api/health')).json()).localSession,false);
+}));
+test('local browser session authenticates without exposing private token',async()=>{
+ const server=createStudioServer({apiKey:'test',token:'private',localSession:true,origins:[],analyze:async()=>({words:[],plan:{scenes:[]}})});
+ // Choose the port before declaring the one permitted origin.
+ server.listen(0,'127.0.0.1');await once(server,'listening');const port=server.address().port;
+ await new Promise(resolve=>server.close(resolve));
+ const base=`http://127.0.0.1:${port}`;
+ const connected=createStudioServer({apiKey:'test',token:'private',localSession:true,origins:[base],analyze:async()=>({words:[],plan:{scenes:[]}})});
+ connected.listen(port,'127.0.0.1');await once(connected,'listening');
+ try{
+  const headers={Origin:base,'Sec-Fetch-Site':'same-origin'};
+  const session=await fetch(base+'/api/local-session',{method:'POST',headers});assert.equal(session.status,200);
+  const cookie=session.headers.get('set-cookie');assert.match(cookie,/HttpOnly; SameSite=Strict/);assert.ok(!cookie.includes('private'));
+  const response=await fetch(base+'/api/analyze',{method:'POST',headers:{...headers,Cookie:cookie.split(';')[0],'Content-Type':'audio/wav'},body:await audio()});assert.equal(response.status,200);
+  const foreign=await fetch(base+'/api/analyze',{method:'POST',headers:{...headers,'Sec-Fetch-Site':'cross-site',Cookie:cookie.split(';')[0],'Content-Type':'audio/wav'},body:await audio()});assert.equal(foreign.status,401);
+ }finally{await new Promise(resolve=>connected.close(resolve));}
+});

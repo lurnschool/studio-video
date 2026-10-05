@@ -19,7 +19,7 @@ Un studio web pour transformer des rushs parlés en vidéos montées, avec des c
 Le connecteur est implémenté. **La génération réelle nécessite une clé OpenAI et un serveur configuré ; elle n’est pas activée sur GitHub Pages.** Aucun résultat de démonstration n’est présenté comme une analyse réelle.
 
 1. Monter les rushs avec les cuts automatiques.
-2. Connecter le service IA, saisir son code d’accès et autoriser l’envoi de la piste audio.
+2. Autoriser l’envoi de la piste audio. En local, la connexion est automatique ; pour un service distant, saisir son adresse et son code d’accès.
 3. Cliquer « Créer les visuels depuis ma voix ».
 4. Le navigateur reconstitue uniquement l’audio conservé dans le montage, en WAV mono 16 kHz.
 5. Le serveur transcrit les mots avec leurs temps, puis demande un plan visuel structuré basé sur le sens du discours.
@@ -44,7 +44,7 @@ Pour activer la génération, renseigner **localement** dans `.env` :
 - `STUDIO_ACCESS_TOKEN` : code privé long et aléatoire (32 caractères minimum recommandé).
 - `OPENAI_MOTION_MODEL` : `gpt-4o-mini` par défaut, configurable.
 
-Dans l’application, connecter `http://127.0.0.1:8787` et saisir le même `STUDIO_ACCESS_TOKEN`. **Ne pas saisir la clé OpenAI dans la page.** Ne pas publier `.env` ni les rushs.
+Avec `STUDIO_LOCAL_SESSION=1`, le studio ouvert sur `http://127.0.0.1:8787` se connecte automatiquement via un cookie HttpOnly, limité au navigateur de même origine sur la boucle locale. Depuis une interface distante, saisir l’adresse du service et le même `STUDIO_ACCESS_TOKEN`. **Ne pas saisir la clé OpenAI dans la page.** Ne pas publier `.env` ni les rushs.
 
 Le serveur ne sert qu’une liste de fichiers publics. Les routes d’analyse exigent un code d’accès et une origine autorisée. Une analyse simultanée maximum, limites de taille et de durée, délai et annulation sont prévus. L’audio et la transcription ne sont pas écrits sur disque par le serveur ; ils sont transmis à OpenAI et soumis à ses règles de traitement. `store: false` est demandé pour le plan visuel. Le code d’accès n’est pas enregistré dans le stockage du navigateur.
 
@@ -56,7 +56,7 @@ Le service Node doit être déployé séparément avec HTTPS, secrets d’enviro
 
 Contrat d’intégration :
 
-- `GET /api/health` → `{ready: boolean}`.
+- `GET /api/health` → `{ready: boolean, localSession: boolean}`.
 - `POST /api/analyze`, `Authorization: Bearer <code privé>`, `Content-Type: audio/wav` → `{words, plan, duration}`.
 - Projet indépendant en JSON v1 (`project.mjs`) ; renderer partagé entre aperçu et export (`render.mjs`).
 
@@ -67,7 +67,7 @@ Contrat d’intégration :
 - Le motion design généré utilise les modèles de schémas fournis ; ce n’est pas encore une génération libre de n’importe quelle animation.
 - Export en temps réel, qualité et codecs dépendants du navigateur. Laisser l’onglet actif ; le rendu navigateur n’a pas la précision image par image d’un moteur de rendu serveur.
 - Les projets JSON n’incluent pas les vidéos ; conserver les originaux.
-- Les appels OpenAI sont couverts par des tests simulés. Aucun appel réel n’a été validé sans clé API.
+- Les tests automatisés simulent les appels OpenAI. Un test réel de 9 secondes en français a aussi validé la transcription horodatée et la création d’un schéma en trois étapes à partir de la voix (5 octobre 2026, audio synthétique).
 
 ```sh
 npm test

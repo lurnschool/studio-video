@@ -1,7 +1,7 @@
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
-import {timingSafeEqual} from 'node:crypto';
+import {timingSafeEqual,randomBytes} from 'node:crypto';
 import {PLAN_SCHEMA,DIRECTOR_PROMPT,validateWords,planToMotions} from './motion-plan.mjs';
 
 const ROOT=new URL('./',import.meta.url);
@@ -32,8 +32,14 @@ export async function analyzeAudio(bytes,{apiKey,model='gpt-4o-mini',fetchImpl=f
   let plan;try{plan=JSON.parse(content.filter(item=>item.type==='output_text').map(item=>item.text).join(''));planToMotions(plan,words,duration);}catch{throw error(502,'Le plan visuel reçu est invalide. Le montage est conservé.');}
   return {words,plan,duration};
 }
-export function createStudioServer({apiKey=process.env.OPENAI_API_KEY,token=process.env.STUDIO_ACCESS_TOKEN,model=process.env.OPENAI_MOTION_MODEL||'gpt-4o-mini',origins=(process.env.ALLOWED_ORIGINS||'http://localhost:8787,http://127.0.0.1:8787,https://lurnschool.github.io').split(',').map(value=>value.trim()),analyze=analyzeAudio}={}) {
+export function createStudioServer({apiKey=process.env.OPENAI_API_KEY,token=process.env.STUDIO_ACCESS_TOKEN,model=process.env.OPENAI_MOTION_MODEL||'gpt-4o-mini',origins=(process.env.ALLOWED_ORIGINS||'http://localhost:8787,http://127.0.0.1:8787,https://lurnschool.github.io').split(',').map(value=>value.trim()),analyze=analyzeAudio,localSession=process.env.STUDIO_LOCAL_SESSION==='1'}={}) {
   let busy=false;
+  const sessionToken=randomBytes(32).toString('hex');
+  const isLocalBrowser=req=>{
+    const port=req.socket.localPort,host=req.headers.host;
+    return localSession&&['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress)&&[`127.0.0.1:${port}`,`localhost:${port}`].includes(host)&&req.headers['sec-fetch-site']==='same-origin'&&(!req.headers.origin||req.headers.origin===`http://${host}`);
+  };
+  const hasLocalSession=req=>isLocalBrowser(req)&&(req.headers.cookie||'').split(';').some(cookie=>cookie.trim()===`studio_session=${sessionToken}`);
   return http.createServer(async(req,res)=>{
     try {
       const path=new URL(req.url,'http://localhost').pathname;
@@ -42,10 +48,15 @@ export function createStudioServer({apiKey=process.env.OPENAI_API_KEY,token=proc
       if(origin){res.setHeader('Access-Control-Allow-Origin',origin);res.setHeader('Vary','Origin');}
       res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type');res.setHeader('Access-Control-Allow-Methods','GET, POST, OPTIONS');
       if(req.method==='OPTIONS'){res.writeHead(204);res.end();return;}
-      if(path==='/api/health'&&req.method==='GET'){json(res,200,{ready:!!apiKey&&!!token});return;}
+      if(path==='/api/health'&&req.method==='GET'){json(res,200,{ready:!!apiKey&&!!token,localSession:isLocalBrowser(req)});return;}
+      if(path==='/api/local-session'&&req.method==='POST'){
+        if(!isLocalBrowser(req)||!req.headers.origin)throw error(403,'La connexion automatique est réservée au studio local.');
+        res.setHeader('Set-Cookie',`studio_session=${sessionToken}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=43200`);
+        json(res,200,{ready:!!apiKey&&!!token});return;
+      }
       if(path==='/api/analyze'&&req.method==='POST'){
         if(!apiKey||!token)throw error(503,'Le service IA n’est pas encore configuré. Ajoutez la clé OpenAI et le code d’accès côté serveur.');
-        if(!authenticate(req,token))throw error(401,'Le code d’accès du service IA est incorrect.');
+        if(!authenticate(req,token)&&!hasLocalSession(req))throw error(401,'Le code d’accès du service IA est incorrect.');
         if(busy)throw error(429,'Une analyse est déjà en cours. Réessayez après sa fin.');
         if(!req.headers['content-type']?.startsWith('audio/wav'))throw error(415,'Une piste WAV est requise.');
         if(Number(req.headers['content-length'])>MAX_AUDIO)throw error(413,'La piste audio est trop volumineuse.');
