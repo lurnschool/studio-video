@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#10121a" />
+    <title>Studio Vidéo — éditeur en ligne</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">▶</span><span>STUDIO<span class="brand-accent">VIDÉO</span></span></div>
+        <div class="top-actions">
+          <span class="privacy-pill"><span class="privacy-dot"></span> Vos vidéos restent sur cet appareil</span>
+          <button id="exportBtn" class="button button-primary" disabled>Exporter la vidéo <span aria-hidden="true">↗</span></button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="sidebar">
+          <div class="panel-heading"><div><span class="eyebrow">PROJET</span><h1>Mes médias</h1></div><span id="mediaCount" class="count">0</span></div>
+          <label class="upload-zone" for="fileInput">
+            <span class="upload-icon">＋</span>
+            <strong>Ajouter des vidéos</strong>
+            <small>Glissez vos fichiers ici ou cliquez pour parcourir</small>
+            <span class="upload-hint">MP4, WebM, MOV selon votre navigateur</span>
+          </label>
+          <input id="fileInput" type="file" accept="video/*" multiple hidden />
+          <div id="mediaList" class="media-list"><div class="empty-media">Vos clips apparaîtront ici.</div></div>
+          <div class="sidebar-bottom"><span class="sparkle">✦</span><div><strong>Tout commence ici</strong><p>Importez quelques vidéos, puis ajustez votre montage.</p></div></div>
+        </aside>
+
+        <section class="editor">
+          <div class="preview-heading"><div><span class="eyebrow">APERÇU</span><h2>Votre montage</h2></div><div class="project-label"><span class="status-dot"></span> Projet sans titre</div></div>
+          <div class="preview-frame" id="previewFrame">
+            <div id="emptyPreview" class="empty-preview"><div class="empty-preview-icon">▶</div><strong>Votre histoire commence ici</strong><p>Ajoutez une vidéo pour voir votre montage prendre vie.</p><label for="fileInput" class="button button-ghost">Importer une vidéo</label></div>
+            <video id="previewVideo" playsinline preload="metadata" hidden></video>
+            <div id="previewCaption" class="preview-caption" hidden></div>
+          </div>
+          <div class="player-bar"><button id="playBtn" class="play-button" aria-label="Lire" disabled>▶</button><span id="timeLabel" class="time-label">00:00 / 00:00</span><input id="projectSeek" class="seek" type="range" min="0" max="1000" value="0" disabled aria-label="Position dans le montage" /><button id="muteBtn" class="icon-button" aria-label="Couper le son" disabled>♫</button></div>
+
+          <div class="timeline-heading"><div><span class="eyebrow">MONTAGE</span><h2>Timeline <span id="clipCount" class="subtle">0 clip</span></h2></div><div class="timeline-tools"><button id="addClipBtn" class="text-button" disabled>＋ Ajouter à la timeline</button><span id="durationBadge" class="duration-badge">00:00</span></div></div>
+          <div id="timeline" class="timeline"><div class="timeline-empty"><span>✦</span><strong>Prêt à créer ?</strong><p>Importez une vidéo pour commencer votre timeline.</p></div></div>
+        </section>
+
+        <aside class="inspector">
+          <div class="panel-heading"><div><span class="eyebrow">RÉGLAGES</span><h2>Personnaliser</h2></div></div>
+          <div class="inspector-section"><label class="field-label" for="formatSelect">Format de la vidéo</label><select id="formatSelect"><option value="16:9">Paysage · 16:9</option><option value="9:16">Vertical · 9:16</option><option value="1:1">Carré · 1:1</option></select><p class="field-help">Le format s’applique à l’aperçu et à l’export.</p></div>
+          <div class="inspector-section"><label class="field-label" for="captionInput">Texte à l’écran</label><textarea id="captionInput" rows="3" placeholder="Écrivez un titre ou un message…"></textarea><p class="field-help">Le texte apparaît sur toute la vidéo.</p></div>
+          <div class="inspector-section"><span class="field-label">Clip sélectionné</span><div id="clipInspector" class="clip-inspector-empty">Cliquez sur un clip dans la timeline pour régler son début et sa fin.</div></div>
+          <div class="inspector-tip"><span>✧</span><p>Astuce : réorganisez les clips avec les flèches de la timeline.</p></div>
+        </aside>
+      </main>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <div id="exportModal" class="modal-backdrop" hidden><div class="modal"><div class="modal-icon">↗</div><h2>Export en cours</h2><p id="exportStatus">Préparation de votre vidéo…</p><div class="progress-track"><div id="exportProgress" class="progress-fill"></div></div><small>Gardez cet onglet ouvert jusqu’à la fin de l’export.</small><button id="cancelExportBtn" class="button button-ghost">Annuler</button></div></div>
+    </div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
