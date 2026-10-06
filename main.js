@@ -1,6 +1,6 @@
 import {applyMontage} from './autopilot.mjs';
 import {DIAGRAMS, validateWords, planToMotions} from './motion-plan.mjs';
-import {montageAudio} from './audio.mjs';
+import {montageAudio} from './audio.mjs?v=0.3.1';
 import { MIN_CLIP, length, duration, locate, splitAt, removeRange, validateProject, clone, uid } from './project.mjs';
 import { audioEnvelope, findPauseCuts } from './autocut.mjs';
 import { dimensions, drawComposition } from './render.mjs';

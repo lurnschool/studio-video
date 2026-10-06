@@ -79,7 +79,7 @@ Contrat d’intégration :
 
 - Le mode complet analyse les reprises et répétitions avec l’IA. Les erreurs de transcription peuvent affecter les décisions : relire et écouter le résultat. Il préserve l’ordre du discours, ne réécrit pas la voix et refuse un plan qui supprime plus de 65 % des mots ou dont les coupes chevauchent des mots conservés. Le bouton « Retirer uniquement les pauses » reste une analyse locale de l’énergie audio, sans analyse du sens.
 - Une musique continue, du bruit ou une voix très faible peuvent limiter la détection des pauses. L’analyse s’appuie sur l’audio ; elle ne juge pas la qualité de la prise à partir des images et les zooms sont centrés.
-- Analyse IA : montage de 10 minutes maximum ; sources de moins de 350 Mo et de 30 minutes. Décodage en mémoire.
+- Analyse IA : montage de 10 minutes maximum ; sources de moins de 30 minutes. Le poids du fichier vidéo ne bloque plus l’analyse ; seule sa piste audio est envoyée au service. Le décodage reste en mémoire et dépend des ressources du navigateur.
 - Le motion design généré utilise les modèles de schémas fournis ; ce n’est pas encore une génération libre de n’importe quelle animation.
 - Export en temps réel, qualité et codecs dépendants du navigateur. Laisser l’onglet actif ; le rendu navigateur n’a pas la précision image par image d’un moteur de rendu serveur.
 - Les projets JSON n’incluent pas les vidéos ; conserver les originaux.
@@ -91,5 +91,7 @@ npm test
 ```
 
 Tests : pauses et marges, cuts et suppression, reprises, recalage des mots et schémas après montage, montage à plusieurs sources, conservation du projet en cas de plan invalide, fichiers de projet, WAV, authentification, origines autorisées, requêtes IA et rejet des plans invalides.
+
+Version 0.3.1 : suppression du blocage arbitraire à 350 Mo sur les sources vidéo, libération du précédent son décodé avant de lire la source suivante et prise en compte de l’annulation avant le décodage. Deux tests de régression couvrent une source déclarée à 1,4 Go et l’annulation de sa lecture ; 41 tests passent.
 
 Documentation utilisée : [transcription et horodatages](https://developers.openai.com/api/docs/guides/speech-to-text), [sorties structurées](https://developers.openai.com/api/docs/guides/structured-outputs).

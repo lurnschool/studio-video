@@ -17,9 +17,14 @@ export async function montageAudio(clips, media, onProgress, signal) {
     for(let i=0;i<clips.length;i++) {
       signal?.throwIfAborted();const clip=clips[i],source=media.find(item=>item.id===clip.mediaId);
       if(!source?.file)throw new Error('Réimportez les vidéos originales avant de générer le motion design.');
-      if(source.file.size>350_000_000||source.duration>1800)throw new Error('Pour l’analyse IA, utilisez des sources de moins de 350 Mo et 30 minutes.');
+      if(source.duration>1800)throw new Error('Pour l’analyse IA, utilisez des sources de moins de 30 minutes.');
       onProgress(`Préparation de la voix · clip ${i+1}/${clips.length}`);
-      if(cachedId!==source.id){decoded=await context.decodeAudioData(await source.file.arrayBuffer());cachedId=source.id;}
+      if(cachedId!==source.id){
+        decoded=null;
+        const bytes=await source.file.arrayBuffer();signal?.throwIfAborted();
+        try{decoded=await context.decodeAudioData(bytes);}catch{throw new Error('La piste audio de cette vidéo ne peut pas être décodée. Essayez une vidéo MP4 avec un son AAC.');}
+        cachedId=source.id;
+      }
       elapsed+=clip.end-clip.start;
       const start=Math.round(clip.start*rate), count=Math.round(elapsed*rate)-outputOffset;
       for(let channel=0;channel<decoded.numberOfChannels;channel++) {
