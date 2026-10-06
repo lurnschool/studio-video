@@ -10,17 +10,18 @@ export function encodeWav(samples, sampleRate = 16000) {
 export async function montageAudio(clips, media, onProgress, signal) {
   const rate=16000, total=clips.reduce((sum,clip)=>sum+clip.end-clip.start,0);
   if(total>600)throw new Error('L’analyse IA accepte pour le moment un montage de 10 minutes maximum.');
-  const samples=new Float32Array(clips.reduce((sum,c)=>sum+Math.round((c.end-c.start)*rate),0));
+  const samples=new Float32Array(Math.round(total*rate));
   const context=new AudioContext({sampleRate:rate});
   try {
-    let outputOffset=0, cachedId, decoded;
+    let outputOffset=0, elapsed=0, cachedId, decoded;
     for(let i=0;i<clips.length;i++) {
       signal?.throwIfAborted();const clip=clips[i],source=media.find(item=>item.id===clip.mediaId);
       if(!source?.file)throw new Error('Réimportez les vidéos originales avant de générer le motion design.');
       if(source.file.size>350_000_000||source.duration>1800)throw new Error('Pour l’analyse IA, utilisez des sources de moins de 350 Mo et 30 minutes.');
       onProgress(`Préparation de la voix · clip ${i+1}/${clips.length}`);
       if(cachedId!==source.id){decoded=await context.decodeAudioData(await source.file.arrayBuffer());cachedId=source.id;}
-      const start=Math.round(clip.start*rate), count=Math.round((clip.end-clip.start)*rate);
+      elapsed+=clip.end-clip.start;
+      const start=Math.round(clip.start*rate), count=Math.round(elapsed*rate)-outputOffset;
       for(let channel=0;channel<decoded.numberOfChannels;channel++) {
         const data=decoded.getChannelData(channel);
         for(let n=0;n<count;n++) samples[outputOffset+n]+=(data[start+n]||0)/decoded.numberOfChannels;

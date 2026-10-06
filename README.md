@@ -4,6 +4,20 @@ Un studio web pour transformer des rushs parlés en vidéos montées, avec des c
 
 **Application : https://lurnschool.github.io/studio-video/**
 
+## Montage complet en un clic
+
+Dans le studio local configuré, importer les rushs, autoriser l’envoi de l’audio puis cliquer **Créer mon montage complet**. L’export automatique est activé par défaut.
+
+1. Transcription de la voix avec les temps de chaque mot.
+2. Décision éditoriale : supprimer les reprises, doublons accidentels et hésitations isolées, conserver les idées et leur ordre.
+3. Détection des pauses dans le son, avec vérification qu’aucun mot conservé ne les traverse.
+4. Recalcul des temps après les coupes, puis choix des titres, cartons, étapes, comparaisons, cartes d’idées et chiffres selon le discours conservé.
+5. Application des animations et de zooms légers aux changements de plan ; export avec le son et le motion design.
+
+Le serveur vérifie les horodatages contre les pauses audio. Un mot qui traverse une longue pause déclenche une nouvelle transcription par portions (quatre points de séparation maximum). Il vérifie aussi que les coupes de reprises conservent les termes principaux dans une autre version et qu’une hésitation ne supprime que des sons de remplissage. Les indices des scènes sont bornés aux mots disponibles. Les plans de coupe et d’animation invalides reçoivent chacun une tentative de correction, puis sont validés à nouveau avant application. Ces contrôles réduisent les erreurs ; ils ne garantissent pas une interprétation parfaite du discours.
+
+Un bilan indique les coupes appliquées et les animations créées. **Annuler ce montage** restaure la version précédente. Les opérations individuelles restent accessibles. Une annulation ou un échec d’analyse conserve le montage précédent ; un échec d’export conserve le nouveau montage pour permettre de réessayer.
+
 ## Disponible sans service IA
 
 - Import local de vidéos, aperçu avec son et export MP4 ou WebM selon le navigateur.
@@ -16,7 +30,7 @@ Un studio web pour transformer des rushs parlés en vidéos montées, avec des c
 
 ## Motion design depuis la voix — connexion requise
 
-Le connecteur est implémenté. **La génération réelle nécessite une clé OpenAI et un serveur configuré ; elle n’est pas activée sur GitHub Pages.** Aucun résultat de démonstration n’est présenté comme une analyse réelle.
+Le connecteur est implémenté et testé avec l’API. **La génération réelle nécessite une clé OpenAI et un serveur configuré ; elle n’est pas activée sur GitHub Pages.** Aucun résultat de démonstration n’est présenté comme une analyse réelle.
 
 1. Monter les rushs avec les cuts automatiques.
 2. Autoriser l’envoi de la piste audio. En local, la connexion est automatique ; pour un service distant, saisir son adresse et son code d’accès.
@@ -58,21 +72,24 @@ Contrat d’intégration :
 
 - `GET /api/health` → `{ready: boolean, localSession: boolean}`.
 - `POST /api/analyze`, `Authorization: Bearer <code privé>`, `Content-Type: audio/wav` → `{words, plan, duration}`.
+- `POST /api/montage?pace=natural` (ou `dynamic`), même authentification et WAV → `{sourceDuration, cuts, words, plan, duration}`. Les `cuts` utilisent les temps du montage envoyé ; `words` et `plan` utilisent les temps après les coupes. Le navigateur valide à nouveau le résultat avant de l’appliquer.
 - Projet indépendant en JSON v1 (`project.mjs`) ; renderer partagé entre aperçu et export (`render.mjs`).
 
 ## Limites et vérification
 
-- Les cuts utilisent l’énergie audio : une musique continue, du bruit ou une voix très faible peuvent limiter leur pertinence. Les répétitions, hésitations et phrases ratées ne sont pas encore supprimées par analyse sémantique.
+- Le mode complet analyse les reprises et répétitions avec l’IA. Les erreurs de transcription peuvent affecter les décisions : relire et écouter le résultat. Il préserve l’ordre du discours, ne réécrit pas la voix et refuse un plan qui supprime plus de 65 % des mots ou dont les coupes chevauchent des mots conservés. Le bouton « Retirer uniquement les pauses » reste une analyse locale de l’énergie audio, sans analyse du sens.
+- Une musique continue, du bruit ou une voix très faible peuvent limiter la détection des pauses. L’analyse s’appuie sur l’audio ; elle ne juge pas la qualité de la prise à partir des images et les zooms sont centrés.
 - Analyse IA : montage de 10 minutes maximum ; sources de moins de 350 Mo et de 30 minutes. Décodage en mémoire.
 - Le motion design généré utilise les modèles de schémas fournis ; ce n’est pas encore une génération libre de n’importe quelle animation.
 - Export en temps réel, qualité et codecs dépendants du navigateur. Laisser l’onglet actif ; le rendu navigateur n’a pas la précision image par image d’un moteur de rendu serveur.
 - Les projets JSON n’incluent pas les vidéos ; conserver les originaux.
 - Les tests automatisés simulent les appels OpenAI. Un test réel de 9 secondes en français a aussi validé la transcription horodatée et la création d’un schéma en trois étapes à partir de la voix (5 octobre 2026, audio synthétique).
+- Le 6 octobre 2026, un test réel du parcours complet dans le navigateur a retiré une reprise et une pause, conservé l’introduction, composé un schéma en trois étapes et déclenché l’export avec son : 12,97 secondes en entrée, 9,49 secondes dans le montage (voix synthétique de démonstration). Les 39 tests automatisés passent.
 
 ```sh
 npm test
 ```
 
-Tests : pauses et marges, cuts et suppression, synchronisation des schémas, fichiers de projet, WAV, authentification, origines autorisées, requêtes IA et rejet des plans invalides.
+Tests : pauses et marges, cuts et suppression, reprises, recalage des mots et schémas après montage, montage à plusieurs sources, conservation du projet en cas de plan invalide, fichiers de projet, WAV, authentification, origines autorisées, requêtes IA et rejet des plans invalides.
 
 Documentation utilisée : [transcription et horodatages](https://developers.openai.com/api/docs/guides/speech-to-text), [sorties structurées](https://developers.openai.com/api/docs/guides/structured-outputs).

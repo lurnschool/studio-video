@@ -14,7 +14,7 @@ export function validateWords(words, duration) {
 }
 
 export function planToMotions(plan, words, duration, makeId = () => crypto.randomUUID()) {
-  const fail = () => { throw new Error('Le plan visuel reçu est invalide. Aucun changement appliqué.'); };
+  const fail = (detail='Vérifier les types, les textes et les indices de mots.') => { throw new Error(`Le plan visuel reçu est invalide. ${detail}`); };
   if (!plan || !Array.isArray(plan.scenes) || plan.scenes.length > 60) fail();
   const scenes = plan.scenes.map(scene => {
     if (!PLAN_KINDS.includes(scene.kind) || !Number.isInteger(scene.startWord) || !Number.isInteger(scene.endWord) || scene.startWord < 0 || scene.endWord < scene.startWord || scene.endWord >= words.length || !text(scene.title, 100) || !scene.title.trim() || !text(scene.accent, 80) || !text(scene.detail, 100) || !Array.isArray(scene.nodes) || scene.nodes.length > 4) fail();
@@ -22,17 +22,17 @@ export function planToMotions(plan, words, duration, makeId = () => crypto.rando
     if (!DIAGRAMS.includes(scene.kind) && scene.nodes.length) fail();
     const start = words[scene.startWord].start;
     const end = Math.min(duration, Math.max(start + 1.2, words[scene.endWord].end + .35));
-    if (end - start > 20 || end - start < .1) fail();
+    if (end - start > 20 || end - start < .1) fail('Chaque scène doit durer entre 0,1 et 20 secondes.');
     const nodes = scene.nodes.map(node => {
-      if (!text(node.label, 45) || !node.label.trim() || !text(node.detail, 75) || !Number.isInteger(node.wordIndex) || node.wordIndex < scene.startWord || node.wordIndex > scene.endWord) fail();
+      if (!text(node.label, 45) || !node.label.trim() || !text(node.detail, 75) || !Number.isInteger(node.wordIndex) || node.wordIndex < scene.startWord || node.wordIndex > scene.endWord) fail('Les indices des blocs doivent être compris entre startWord et endWord ; label ≤45 caractères, detail ≤75.');
       return { label: node.label, detail: node.detail, at: Math.max(0, words[node.wordIndex].start - start) };
     });
     return {id:makeId(),origin:'ai',text:scene.title,accent:scene.accent,detail:scene.detail,preset:scene.kind,position:DIAGRAMS.includes(scene.kind)?'center':'left',color:'#6736ee',start,duration:end-start,nodes};
   }).sort((a,b)=>a.start-b.start);
   for(let i=0;i<scenes.length-1;i++) {
-    if(scenes[i+1].start-scenes[i].start<.1) fail();
+    if(scenes[i+1].start-scenes[i].start<.1) fail('Deux scènes commencent au même instant. Conserver une seule scène par passage.');
     scenes[i].duration=Math.min(scenes[i].duration,scenes[i+1].start-scenes[i].start);
-    if(scenes[i].nodes.some(node=>node.at>=scenes[i].duration)) fail();
+    if(scenes[i].nodes.some(node=>node.at>=scenes[i].duration)) fail('La scène suivante cache un bloc avant son apparition. Espacer les scènes ou ne garder que le schéma.');
   }
   return scenes;
 }

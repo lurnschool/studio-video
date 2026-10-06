@@ -1,3 +1,4 @@
+import {applyMontage} from './autopilot.mjs';
 import {DIAGRAMS, validateWords, planToMotions} from './motion-plan.mjs';
 import {montageAudio} from './audio.mjs';
 import { MIN_CLIP, length, duration, locate, splitAt, removeRange, validateProject, clone, uid } from './project.mjs';
@@ -5,7 +6,7 @@ import { audioEnvelope, findPauseCuts } from './autocut.mjs';
 import { dimensions, drawComposition } from './render.mjs';
 const $ = selector => document.querySelector(selector);
 const video = $('#previewVideo'), canvas = $('#previewCanvas'), ctx = canvas.getContext('2d');
-const state = { media: [], clips: [], motions: [], format: '16:9', selected: null, motionId: null, position: 0, playing: false, loading: false, exporting: false, cancel: false, muted: false, analyzing: false };
+const state = { media: [], clips: [], motions: [], format: '16:9', selected: null, motionId: null, position: 0, playing: false, loading: false, exporting: false, cancel: false, muted: false, analyzing: false, report: null };
 const history = [], future = [];
 let toastTimer, loadToken = 0, resultUrl, aiController, localAiSession=false;
 const esc = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -13,10 +14,10 @@ const mediaFor = clip => state.media.find(item => item.id === clip?.mediaId);
 const total = () => duration(state.clips);
 const timeLabel = seconds => `${String(Math.floor(Math.max(0, seconds) / 60)).padStart(2,'0')}:${(Math.max(0,seconds)%60).toFixed(2).padStart(5,'0')}`;
 function toast(message) { $('#toast').textContent=message; $('#toast').classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),4500); }
-function snapshot() { return clone({ clips:state.clips, motions:state.motions, format:state.format, selected:state.selected, motionId:state.motionId, position:state.position }); }
-function checkpoint() { history.push(snapshot()); if(history.length>60)history.shift(); future.length=0; }
+function snapshot() { return clone({ clips:state.clips, motions:state.motions, format:state.format, selected:state.selected, motionId:state.motionId, position:state.position, report:state.report }); }
+function checkpoint() { history.push(snapshot()); if(history.length>60)history.shift(); future.length=0; state.report=null; }
 function pause() { state.playing=false; video.pause(); renderClock(); }
-function recordEdit(edit) { pause(); checkpoint(); edit(); state.position=Math.min(state.position,total()); render(); void seek(state.position); }
+function recordEdit(edit) { pause(); checkpoint(); state.report=null; edit(); state.position=Math.min(state.position,total()); render(); void seek(state.position); }
 function restore(from,to) { if(!from.length || state.exporting)return; pause(); to.push(snapshot()); Object.assign(state,from.pop()); render(); fillMotionForm(); void seek(state.position); }
 function waitMedia(target, event, timeout=15000) { return new Promise((resolve,reject)=>{ const cleanup=()=>{clearTimeout(timer);target.removeEventListener(event,done);target.removeEventListener('error',fail);}; const done=()=>{cleanup();resolve();}; const fail=()=>{cleanup();reject(new Error('Vidéo illisible dans ce navigateur.'));}; const timer=setTimeout(()=>{cleanup();reject(new Error('La vidéo ne répond pas.'));},timeout);target.addEventListener(event,done,{once:true});target.addEventListener('error',fail,{once:true}); }); }
 async function prepare(target,url,position) { if(target.src!==url) { const ready=waitMedia(target,'loadedmetadata'); target.src=url; await ready; } if(Math.abs(target.currentTime-position)>0.0001) { const ready=waitMedia(target,'seeked');target.currentTime=position;await ready; } if(target.readyState<2)await waitMedia(target,'loadeddata'); }
@@ -34,6 +35,8 @@ function render() {
   $('#missingMedia').hidden=!missing.length;$('#missingMedia').textContent=`Réimportez les vidéos originales pour continuer : ${missing.map(item=>item.name).join(', ')}`;
   $('#mediaCount').textContent=state.media.length;$('#clipCount').textContent=`${state.clips.length} clip${state.clips.length>1?'s':''}`;$('#durationBadge').textContent=timeLabel(total());
   for(const id of ['playBtn','projectSeek','removeRangeBtn','stepBackBtn','stepForwardBtn','muteBtn','generateMotionBtn'])$('#'+id).disabled=!state.clips.length||state.exporting||!!missing.length;
+  $('#autopilotBtn').disabled=!state.clips.length||state.exporting||state.analyzing||!!missing.length;
+  renderAutopilotReport();
   $('#exportBtn').disabled=!state.clips.length||state.exporting||state.analyzing||!!missing.length;$('#autoCutBtn').disabled=!state.clips.length||state.exporting||state.analyzing||!!missing.length;$('#addClipBtn').disabled=!state.media.some(item=>item.url);$('#undoBtn').disabled=!history.length||state.exporting;$('#redoBtn').disabled=!future.length||state.exporting;
   $('#emptyPreview').hidden=!!state.clips.length;canvas.hidden=!state.clips.length;video.hidden=true;
   $('#formatSelect').value=state.format;[canvas.width,canvas.height]=dimensions(state.format);
@@ -88,10 +91,10 @@ requestAnimationFrame(tick);
 function downloadBlob(blob,name){const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
 $('#saveProjectBtn').addEventListener('click',()=>{const project=validateProject({version:1,format:state.format,media:state.media,clips:state.clips,motions:state.motions});downloadBlob(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}),'studio-video.projet.json');toast('Projet enregistré. Conservez aussi vos vidéos originales.');});
 $('#openProjectBtn').addEventListener('click',()=>$('#projectInput').click());
-$('#projectInput').addEventListener('change',async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>2_000_000)throw new Error('Le fichier de projet est trop volumineux.');const project=validateProject(JSON.parse(await file.text()));pause();const previous=state.media;project.media=project.media.map(item=>{const existing=previous.find(media=>media.name===item.name&&media.size===item.size&&Math.abs(media.duration-item.duration)<.1);return existing?{...item,url:existing.url,file:existing.file,thumbnail:existing.thumbnail}:item;});Object.assign(state,project,{selected:project.clips[0]?.id??null,motionId:null,position:0});history.length=0;future.length=0;render();fillMotionForm();await seek(0);toast('Projet ouvert. Réimportez les vidéos indiquées si nécessaire.');}catch(error){toast(error.message);}finally{event.target.value='';}});
+$('#projectInput').addEventListener('change',async event=>{const file=event.target.files[0];if(!file)return;try{if(file.size>2_000_000)throw new Error('Le fichier de projet est trop volumineux.');const project=validateProject(JSON.parse(await file.text()));pause();const previous=state.media;project.media=project.media.map(item=>{const existing=previous.find(media=>media.name===item.name&&media.size===item.size&&Math.abs(media.duration-item.duration)<.1);return existing?{...item,url:existing.url,file:existing.file,thumbnail:existing.thumbnail}:item;});Object.assign(state,project,{selected:project.clips[0]?.id??null,motionId:null,position:0,report:null});history.length=0;future.length=0;render();fillMotionForm();await seek(0);toast('Projet ouvert. Réimportez les vidéos indiquées si nécessaire.');}catch(error){toast(error.message);}finally{event.target.value='';}});
 async function exportVideo(){
  if(state.exporting||!state.clips.length)return;const mime=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'].find(type=>window.MediaRecorder?.isTypeSupported(type));if(!mime||!canvas.captureStream||!window.AudioContext){toast('Ce navigateur ne prend pas en charge l’export.');return;}
- pause();state.exporting=true;state.cancel=false;$('.workspace').inert=true;$('.topbar').inert=true;$('#taskTitle').textContent='Export en cours';$('#exportModal').hidden=false;$('#exportProgress').style.width='0%';render();const clips=clone(state.clips),motions=clone(state.motions),output=document.createElement('canvas');[output.width,output.height]=dimensions(state.format);const outCtx=output.getContext('2d'),player=document.createElement('video');player.playsInline=true;player.preload='auto';let audio,stream,recorder,recordError,stopped,started=false;
+ pause();$('#resultPanel').hidden=true;state.exporting=true;state.cancel=false;$('.workspace').inert=true;$('.topbar').inert=true;$('#taskTitle').textContent='Export en cours';$('#exportModal').hidden=false;$('#exportProgress').style.width='0%';render();const clips=clone(state.clips),motions=clone(state.motions),output=document.createElement('canvas');[output.width,output.height]=dimensions(state.format);const outCtx=output.getContext('2d'),player=document.createElement('video');player.playsInline=true;player.preload='auto';let audio,stream,recorder,recordError,stopped,started=false;
  try{audio=new AudioContext();await audio.resume();const source=audio.createMediaElementSource(player),destination=audio.createMediaStreamDestination();source.connect(destination);stream=output.captureStream(30);destination.stream.getAudioTracks().forEach(track=>stream.addTrack(track));recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:5_000_000});const chunks=[];recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data);};stopped=new Promise(resolve=>{recorder.onstop=resolve;});recorder.onerror=event=>{recordError=event.error||new Error('Échec de l’encodage.');};let elapsed=0;
  for(let i=0;i<clips.length;i++){if(state.cancel)break;const clip=clips[i],media=mediaFor(clip);$('#exportStatus').textContent=`Clip ${i+1} sur ${clips.length}`;await prepare(player,media.url,clip.start);if(state.cancel)break;drawComposition(outCtx,output,player,motions,elapsed,clip.zoom||1);if(!started){recorder.start(500);started=true;}else recorder.resume();await player.play();
  await new Promise((resolve,reject)=>{let last=performance.now(),lastTime=player.currentTime;const frame=()=>{if(recordError){reject(recordError);return;}if(state.cancel||player.currentTime>=clip.end-.008||player.ended){player.pause();resolve();return;}if(player.currentTime!==lastTime){last=performance.now();lastTime=player.currentTime;}if(performance.now()-last>15000){reject(new Error('Lecture interrompue pendant l’export.'));return;}drawComposition(outCtx,output,player,motions,elapsed+Math.max(0,player.currentTime-clip.start),clip.zoom||1);$('#exportProgress').style.width=`${Math.min(100,(elapsed+player.currentTime-clip.start)/duration(clips)*100)}%`;setTimeout(frame,16);};frame();});elapsed+=length(clip);if(recorder.state==='recording')recorder.pause();}
@@ -188,3 +191,36 @@ async function connectLocalStudio(){
 }
 $('#aiEndpoint').addEventListener('input',()=>{const same=localAiSession&&$('#aiEndpoint').value.trim().replace(/\/$/,'')===location.origin;$('#aiToken').hidden=same;$('label[for="aiToken"]').hidden=same;});
 void connectLocalStudio();
+
+function renderAutopilotReport(){
+ const report=state.report;$('#autopilotReport').hidden=!report;
+ if(!report)return;
+ $('#autopilotSummary').textContent=`${timeLabel(report.before)} → ${timeLabel(report.after)} · ${report.cuts.length} coupe${report.cuts.length===1?'':'s'} · ${report.visuals} animation${report.visuals===1?'':'s'}. Écoutez le résultat pour vérifier le sens et le rythme.`;
+ $('#autopilotCuts').innerHTML=report.cuts.length?report.cuts.map(c=>`<li><strong>${esc(c.reason)}</strong> · ${timeLabel(c.start)} à ${timeLabel(c.end)} dans le montage de départ</li>`).join(''):'<li>Aucune coupe nécessaire pour ce passage.</li>';
+ $('#undoAutopilotBtn').disabled=!history.length||state.analyzing||state.exporting;
+}
+$('#undoAutopilotBtn').addEventListener('click',()=>{restore(history,future);$('#resultPanel').hidden=true;$('#autopilotStatus').textContent='Montage annulé. La version précédente est rétablie.';});
+$('#autopilotBtn').addEventListener('click',async()=>{
+ if(state.analyzing||state.exporting||!state.clips.length)return;
+ let endpoint;
+ try{endpoint=aiAddress();if(!(localAiSession&&endpoint===location.origin)&&!$('#aiToken').value.trim())throw new Error('Connectez le service IA pour confier le montage à votre monteur.');if(!$('#aiConsent').checked)throw new Error('Cochez l’autorisation d’envoi audio au-dessus du bouton pour lancer le montage.');}
+ catch(error){$('#autopilotStatus').textContent=error.message;if(!$('#aiEndpoint').value||(!(localAiSession&&endpoint===location.origin)&&!$('#aiToken').value.trim()))$('#aiConnection').open=true;return;}
+ const before=total(),source=snapshot(),shouldExport=$('#autoExport').checked;
+ pause();state.analyzing=true;state.cancel=false;aiController=new AbortController();
+ $('.workspace').inert=true;$('.topbar').inert=true;$('#resultPanel').hidden=true;$('#taskTitle').textContent='Votre monteur IA travaille';$('#exportProgress').style.width='8%';$('#exportModal').hidden=false;render();
+ let applied=false;
+ try{
+  const wav=await montageAudio(source.clips,state.media,message=>{$('#exportStatus').textContent=message;},aiController.signal);
+  $('#exportProgress').style.width='30%';$('#exportStatus').textContent='Écoute de la voix, choix des coupes et composition des animations…';
+  const response=await fetch(`${endpoint}/api/montage?pace=${encodeURIComponent($('#autoProfile').value)}`,{method:'POST',headers:{'Content-Type':'audio/wav',...(localAiSession&&endpoint===location.origin?{}:{Authorization:`Bearer ${$('#aiToken').value.trim()}`})},body:wav,signal:AbortSignal.any([aiController.signal,AbortSignal.timeout(430000)])});
+  const data=await response.json();if(!response.ok)throw new Error(data.error||'Le monteur IA n’a pas pu terminer.');
+  aiController.signal.throwIfAborted();
+  const result=applyMontage(source,data,{zoom:$('#autoZoom').checked});
+  checkpoint();Object.assign(state,{clips:result.clips,motions:result.motions,position:0,selected:result.clips[0]?.id??null,motionId:result.motions.find(m=>m.origin==='ai')?.id??null,report:{before,after:data.duration,cuts:data.cuts,visuals:result.motions.filter(m=>m.origin==='ai').length}});
+  $('#transcriptText').textContent=result.words.map(w=>w.word).join(' ');$('#transcriptPanel').hidden=false;
+  $('#autopilotStatus').textContent=shouldExport?'Montage créé. Préparation de la vidéo à télécharger…':'Montage créé. Lancez la lecture pour découvrir le résultat.';
+  fillMotionForm();applied=true;
+ }catch(error){$('#autopilotStatus').textContent=state.cancel?'Montage annulé. La version précédente est conservée.':error.name==='TimeoutError'?'Le montage a dépassé le délai. Essayez un passage plus court.':error.message;toast($('#autopilotStatus').textContent);}
+ finally{state.analyzing=false;aiController=null;$('#exportModal').hidden=true;$('.workspace').inert=false;$('.topbar').inert=false;render();await seek(state.position);}
+ if(applied&&shouldExport&&!state.cancel){await exportVideo();$('#autopilotStatus').textContent=$('#resultPanel').hidden?'Le montage est prêt dans l’aperçu. Vous pouvez relancer l’export.':'Votre montage complet est prêt à regarder et à télécharger.';}
+});

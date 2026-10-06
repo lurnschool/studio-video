@@ -28,11 +28,21 @@
           </label>
           <input id="fileInput" type="file" accept="video/*" multiple hidden />
           <div id="mediaList" class="media-list"><div class="empty-media">Vos clips apparaîtront ici.</div></div>
-          <div class="sidebar-bottom"><span class="sparkle">✦</span><div><strong>Tout commence ici</strong><p>Importez vos rushs, lancez les cuts, puis générez les visuels depuis votre voix.</p></div></div>
+          <div class="sidebar-bottom"><span class="sparkle">✦</span><div><strong>Tout commence ici</strong><p>Importez vos rushs et confiez le montage complet à l’IA.</p></div></div>
         </aside>
 
         <section class="editor">
           <div class="preview-heading"><div><span class="eyebrow">APERÇU</span><h2>Votre montage</h2></div><div class="project-label"><span class="status-dot"></span> Projet sans titre</div></div>
+          <section class="autopilot-card" aria-labelledby="autopilotHeading">
+            <span class="eyebrow">VOTRE MONTEUR IA</span><h2 id="autopilotHeading">Vous parlez. L’IA monte.</h2>
+            <p>Elle nettoie les prises, resserre les pauses et choisit les titres, schémas et animations selon vos paroles.</p>
+            <ol class="autopilot-steps"><li>Comprendre</li><li>Couper</li><li>Illustrer</li><li>Exporter</li></ol>
+            <div class="autopilot-options"><label for="autoProfile">Rythme<select id="autoProfile"><option value="natural">Naturel · garder les respirations</option><option value="dynamic">Dynamique · pauses plus courtes</option></select></label><label class="check-label"><input type="checkbox" id="autoZoom" checked /> Zooms légers aux moments clés</label><label class="check-label"><input id="autoExport" type="checkbox" checked /> Préparer aussi la vidéo à télécharger</label></div>
+            <label class="check-label audio-consent"><input id="aiConsent" type="checkbox" /> Autoriser l’envoi de l’audio au service connecté et à OpenAI pour réaliser le montage.</label>
+            <button id="autopilotBtn" class="button button-primary" disabled>✦ Créer mon montage complet</button>
+            <p id="autopilotStatus" role="status">Importez une vidéo pour commencer. Les originaux sont conservés.</p>
+            <section id="autopilotReport" class="autopilot-report" hidden><h3>Les choix de votre monteur</h3><p id="autopilotSummary"></p><details><summary>Voir les coupes appliquées</summary><ul id="autopilotCuts"></ul></details><button id="undoAutopilotBtn" class="text-button">↶ Annuler ce montage</button></section>
+          </section>
           <div class="preview-frame" id="previewFrame">
             <div id="emptyPreview" class="empty-preview"><div class="empty-preview-icon">▶</div><strong>Votre histoire commence ici</strong><p>Ajoutez une vidéo pour voir votre montage prendre vie.</p><label for="fileInput" class="button button-ghost">Importer une vidéo</label></div>
             <video id="previewVideo" playsinline preload="metadata" hidden></video>
@@ -40,18 +50,17 @@
           </div>
           <div class="player-bar"><button id="playBtn" class="play-button" aria-label="Lire" disabled>▶</button><span id="timeLabel" class="time-label">00:00 / 00:00</span><input id="projectSeek" class="seek" type="range" min="0" max="1000" value="0" disabled aria-label="Position dans le montage" /><button id="muteBtn" class="icon-button" aria-label="Couper le son" disabled>♫</button></div>
 
-          <div class="auto-edit"><div><span class="eyebrow">MONTAGE AUTOMATIQUE</span><h3>Des cuts au rythme de votre voix</h3><p>Retirez les pauses, gardez une marge autour des mots et resserrez le montage en un clic.</p></div><div class="auto-options"><label for="autoProfile">Rythme</label><select id="autoProfile"><option value="natural">Naturel · garder les respirations</option><option value="dynamic">Dynamique · pauses plus courtes</option></select><label class="check-label"><input type="checkbox" id="autoZoom" checked /> Alterner des zooms légers aux cuts</label><button id="autoCutBtn" class="button button-primary" disabled>✦ Monter automatiquement</button></div><p id="autoSummary" class="auto-summary" role="status"></p></div><section class="ai-edit" aria-labelledby="aiHeading">
+          <div class="auto-edit"><div><span class="eyebrow">MONTAGE AUTOMATIQUE</span><h3>Des cuts au rythme de votre voix</h3><p>Retirez les pauses, gardez une marge autour des mots et resserrez le montage en un clic.</p></div><div class="auto-options"><button id="autoCutBtn" class="button button-ghost" disabled>Retirer uniquement les pauses</button></div><p id="autoSummary" class="auto-summary" role="status"></p></div><section class="ai-edit" aria-labelledby="aiHeading">
   <span class="eyebrow">MOTION DESIGN INTELLIGENT</span><h3 id="aiHeading">Vos idées deviennent des schémas</h3>
   <p>La voix du montage est transcrite. Les étapes, comparaisons, idées clés et chiffres deviennent des animations synchronisées.</p>
   <div class="diagram-tags"><span>Étapes →</span><span>Comparaisons</span><span>Cartes d’idées</span><span>Chiffres</span></div>
   <p id="aiSummary" role="status">Connexion IA à configurer pour analyser votre voix.</p>
   <button id="generateMotionBtn" class="button button-primary" disabled>✦ Créer les visuels depuis ma voix</button>
   <button id="demoMotionBtn" class="text-button">Voir un exemple de schéma</button>
-  <details id="aiConnection"><summary>Connecter le service IA</summary>
+  <details id="aiConnection"><summary>Connexion du service IA</summary>
     <label for="aiEndpoint">Adresse du service</label><input id="aiEndpoint" type="url" placeholder="https://votre-service.fr" autocomplete="off" />
     <label for="aiToken">Code d’accès privé du service</label><input id="aiToken" type="password" autocomplete="off" placeholder="Code fourni lors de la configuration" />
     <p>La clé OpenAI est configurée sur le serveur. Ne la saisissez pas ici. L’analyse utilise le compte API de ce serveur.</p>
-    <label class="check-label"><input id="aiConsent" type="checkbox" /> Envoyer la piste audio au service connecté et à OpenAI pour cette analyse.</label>
     <button id="checkAiBtn" class="button button-ghost">Vérifier la connexion</button>
   </details>
   <details id="transcriptPanel" hidden><summary>Paroles utilisées pour les visuels</summary><p id="transcriptText"></p></details>
