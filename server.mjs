@@ -2,12 +2,12 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {timingSafeEqual,randomBytes} from 'node:crypto';
-import {PLAN_SCHEMA,DIRECTOR_PROMPT,validateWords,planToMotions} from './motion-plan.mjs';
+import {PLAN_SCHEMA,DIRECTOR_PROMPT,FULL_MOTION_PROMPT,validateWords,planToMotions} from './motion-plan.mjs';
 import {EDIT_SCHEMA,EDIT_PROMPT,buildEdit,transcriptionBreaks} from './autopilot.mjs';
 import {audioEnvelope,findPauseCuts} from './autocut.mjs';
 
 const ROOT=new URL('./',import.meta.url);
-const PUBLIC=new Set(['index.html','style.css','main.js','project.mjs','render.mjs','autocut.mjs','motion-plan.mjs','audio.mjs','autopilot.mjs']);
+const PUBLIC=new Set(['index.html','style.css','main.js','project.mjs','render.mjs','autocut.mjs','motion-plan.mjs','audio.mjs','autopilot.mjs','full-motion.mjs']);
 const MAX_AUDIO=20_000_000;
 const error=(status,message)=>Object.assign(new Error(message),{status});
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));};
@@ -17,7 +17,7 @@ export function wavDuration(bytes){
   if(bytes.length<44||bytes.toString('ascii',0,4)!=='RIFF'||bytes.toString('ascii',8,12)!=='WAVE'||bytes.toString('ascii',12,16)!=='fmt '||bytes.readUInt32LE(16)!==16||bytes.readUInt16LE(20)!==1||bytes.readUInt16LE(22)!==1||bytes.readUInt32LE(24)!==16000||bytes.readUInt16LE(34)!==16||bytes.toString('ascii',36,40)!=='data'||bytes.readUInt32LE(40)!==bytes.length-44)throw error(400,'La piste audio doit être un WAV mono PCM 16 kHz.');
   const duration=(bytes.length-44)/32000;if(duration<=0||duration>600)throw error(400,'La piste doit durer entre 0 et 600 secondes.');return duration;
 }
-export async function analyzeAudio(bytes,{apiKey,model='gpt-4o-mini',fetchImpl=fetch,signal,fullEdit=false,pace='natural'}={}) {
+export async function analyzeAudio(bytes,{apiKey,model='gpt-4o-mini',fetchImpl=fetch,signal,fullEdit=false,pace='natural',visualMode='footage'}={}) {
   const sourceDuration=wavDuration(bytes);
   const request=async(path,options)=>{
     const response=await fetchImpl(`https://api.openai.com/v1/${path}`,{...options,headers:{...options.headers,Authorization:`Bearer ${apiKey}`},signal});
@@ -29,7 +29,7 @@ export async function analyzeAudio(bytes,{apiKey,model='gpt-4o-mini',fetchImpl=f
     if(fullEdit)form.set('prompt','Enregistrement brut en français, avec hésitations, reprises, répétitions : euh, hum, je... je recommence.');
     return validateWords((await request('audio/transcriptions',{method:'POST',body:form})).words,wavDuration(audio));
   };
-  let words=await transcribe(bytes),duration=sourceDuration,cuts=[],pauses=[];
+  let words=await transcribe(bytes),duration=sourceDuration,cuts=[],pauses=[],warnings=[];
   if(fullEdit){
     const samples=new Float32Array((bytes.length-44)/2);
     for(let i=0;i<samples.length;i++)samples[i]=bytes.readInt16LE(44+i*2)/32768;
@@ -60,14 +60,19 @@ export async function analyzeAudio(bytes,{apiKey,model='gpt-4o-mini',fetchImpl=f
   if(fullEdit){
     let edit=await structured('speech_edit_plan',EDIT_SCHEMA,EDIT_PROMPT);
     try{buildEdit(words,sourceDuration,edit,pauses);}catch(cause){edit=await structured('speech_edit_plan',EDIT_SCHEMA,EDIT_PROMPT,{previousPlan:edit,error:cause.message});}
-    try{({words,duration,cuts}=buildEdit(words,sourceDuration,edit,pauses));}catch(cause){throw error(502,cause.message);}
+    try{({words,duration,cuts}=buildEdit(words,sourceDuration,edit,pauses));}catch{
+      // A doubtful editorial cut must not prevent a complete, faithful video.
+      ({words,duration,cuts}=buildEdit(words,sourceDuration,{removals:[]},pauses));
+      warnings.push('Les coupes de paroles proposées étaient incertaines : toutes les phrases ont été conservées. Seules les pauses vérifiées ont pu être retirées.');
+    }
   }
-  let plan=await structured('motion_design_plan',PLAN_SCHEMA,DIRECTOR_PROMPT);
-  try{planToMotions(plan,words,duration);}catch(cause){plan=await structured('motion_design_plan',PLAN_SCHEMA,DIRECTOR_PROMPT,{previousPlan:plan,error:cause.message});}
-  try{planToMotions(plan,words,duration);}catch{throw error(502,'Le plan visuel reçu est invalide. Le montage est conservé.');}
-  return fullEdit?{sourceDuration,words,plan,duration,cuts}:{words,plan,duration};
+  const director=visualMode==='motion'?FULL_MOTION_PROMPT:DIRECTOR_PROMPT;
+  let plan=await structured('motion_design_plan',PLAN_SCHEMA,director);
+  try{planToMotions(plan,words,duration,undefined,{visualMode});}catch(cause){plan=await structured('motion_design_plan',PLAN_SCHEMA,director,{previousPlan:plan,error:cause.message});}
+  try{planToMotions(plan,words,duration,undefined,{visualMode});}catch{throw error(502,'Le plan visuel reçu est invalide. Le montage est conservé.');}
+  return fullEdit?{sourceDuration,words,plan,duration,cuts,warnings}:{words,plan,duration,warnings};
 }
-export function createStudioServer({apiKey=process.env.OPENAI_API_KEY,token=process.env.STUDIO_ACCESS_TOKEN,model=process.env.OPENAI_MOTION_MODEL||'gpt-4o-mini',origins=(process.env.ALLOWED_ORIGINS||'http://localhost:8787,http://127.0.0.1:8787,https://lurnschool.github.io').split(',').map(value=>value.trim()),analyze=analyzeAudio,localSession=process.env.STUDIO_LOCAL_SESSION==='1'}={}) {
+export function createStudioServer({apiKey=process.env.OPENAI_API_KEY,token=process.env.STUDIO_ACCESS_TOKEN,model=process.env.OPENAI_MOTION_MODEL||'gpt-4o-mini',fullMotionModel=process.env.OPENAI_FULL_MOTION_MODEL||'gpt-4.1',origins=(process.env.ALLOWED_ORIGINS||'http://localhost:8787,http://127.0.0.1:8787,https://lurnschool.github.io').split(',').map(value=>value.trim()),analyze=analyzeAudio,localSession=process.env.STUDIO_LOCAL_SESSION==='1'}={}) {
   let busy=false;
   const sessionToken=randomBytes(32).toString('hex');
   const isLocalBrowser=req=>{
@@ -95,11 +100,12 @@ export function createStudioServer({apiKey=process.env.OPENAI_API_KEY,token=proc
         if(busy)throw error(429,'Une analyse est déjà en cours. Réessayez après sa fin.');
         if(!req.headers['content-type']?.startsWith('audio/wav'))throw error(415,'Une piste WAV est requise.');
         if(Number(req.headers['content-length'])>MAX_AUDIO)throw error(413,'La piste audio est trop volumineuse.');
-        const fullEdit=path==='/api/montage',pace=url.searchParams.get('pace')||'natural';
+        const fullEdit=path==='/api/montage',pace=url.searchParams.get('pace')||'natural',visualMode=url.searchParams.get('visualMode')||'footage';
+        if(!['footage','motion'].includes(visualMode))throw error(400,'Mode visuel invalide.');
         if(!['natural','dynamic'].includes(pace))throw error(400,'Rythme de montage invalide.');
         busy=true;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),fullEdit?420000:240000);
         res.on('close',()=>{if(!res.writableEnded)controller.abort();});
-        try{const bytes=await body(req);wavDuration(bytes);const result=await analyze(bytes,{apiKey,model,signal:controller.signal,fullEdit,pace});if(!res.destroyed)json(res,200,result);}
+        try{const bytes=await body(req);wavDuration(bytes);const result=await analyze(bytes,{apiKey,model:visualMode==='motion'?fullMotionModel:model,signal:controller.signal,fullEdit,pace,visualMode});if(!res.destroyed)json(res,200,result);}
         finally{busy=false;clearTimeout(timer);}return;
       }
       if(req.method==='GET'){

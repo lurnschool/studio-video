@@ -1,9 +1,11 @@
-import {DIAGRAMS} from './motion-plan.mjs';
+import {drawFullMotion} from './full-motion.mjs?v=0.4.0';
+import {DIAGRAMS} from './motion-plan.mjs?v=0.4.0';
 export function dimensions(format) {
   return format === '9:16' ? [720, 1280] : format === '1:1' ? [1080, 1080] : [1280, 720];
 }
 
-export function drawComposition(ctx, canvas, video, motions, time, zoom = 1) {
+export function drawComposition(ctx, canvas, video, motions, time, zoom = 1, visualMode = 'footage') {
+  if(visualMode==='motion'){drawFullMotion(ctx,canvas,motions,time);return;}
   const { width: w, height: h } = canvas;
   ctx.clearRect(0, 0, w, h); ctx.fillStyle = '#050608'; ctx.fillRect(0, 0, w, h);
   if (video.readyState >= 2 && video.videoWidth > 0) {
@@ -17,6 +19,7 @@ export function drawComposition(ctx, canvas, video, motions, time, zoom = 1) {
     const enter = Math.min(1, local / Math.min(0.4, motion.duration / 3));
     const exit = Math.min(1, (motion.duration - local) / Math.min(0.3, motion.duration / 3));
     const ease = 1 - (1 - enter) ** 3;
+    if (['messages','cards'].includes(motion.preset)) { drawFullMotion(ctx,canvas,[motion],time); continue; }
     if (DIAGRAMS.includes(motion.preset)) { drawDiagram(ctx, canvas, motion, local, exit); continue; }
     if (motion.preset === 'editorial') { drawEditorial(ctx, canvas, motion, local, exit); continue; }
     if (motion.preset === 'gradient') { drawGradientCard(ctx, canvas, motion, local, enter, exit); continue; }

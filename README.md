@@ -1,8 +1,21 @@
 # Studio Vidéo
 
-Un studio web pour transformer des rushs parlés en vidéos montées, avec des cuts automatiques et du motion design synchronisé sur les idées exprimées.
+Un studio web pour transformer une voix off ou une vidéo parlée en vidéo entièrement animée, avec des cuts automatiques et du motion design synchronisé sur les idées exprimées.
 
 **Application : https://lurnschool.github.io/studio-video/**
+
+## Nouveau : vidéo 100 % motion design (0.4.0)
+
+Le mode **100 % motion design** conserve uniquement la narration de l’audio ou de la vidéo importée. L’IA propose un storyboard continu ; aucun pixel de la vidéo source n’est dessiné, même entre deux scènes. Les compositions couvrent toute la durée : titres cinétiques, messages, cartes d’interface, étapes, comparaisons, idées reliées et chiffres. Fond anthracite, lueurs corail, cartes et transitions ; chaque texte, couleur et déclenchement reste modifiable.
+
+- Importer un MP3, WAV, M4A ou une vidéo lisible par le navigateur.
+- Garder **100 % motion design**, autoriser l’envoi audio et lancer **Créer mon montage complet**.
+- Regarder le résultat exporté dans le lecteur intégré, puis le télécharger.
+- **Voir le style animé** ouvre une démonstration muette pré-écrite de 21 secondes, sans appel API. Ce n’est pas une analyse de votre contenu.
+
+Le mode **Vidéo filmée + animations** reste disponible. Les anciens projets s’ouvrent dans ce mode. Le mode visuel est sauvegardé dans le projet JSON v1. En mode entièrement animé, une génération remplace le storyboard complet ; annuler restaure la version précédente. Une scène reste affichée jusqu’à la suivante, même lorsque sa durée manuelle est plus courte.
+
+La réalisation du mode animé utilise `OPENAI_FULL_MOTION_MODEL=gpt-4.1` par défaut, configurable côté serveur. Les scènes doivent couvrir tous les mots sans trou ni doublon, avec au moins 1,8 seconde par scène (sauf narration entière plus courte). Un plan invalide reçoit une tentative de correction. Si les coupes éditoriales restent incertaines, les phrases sont conservées, seules les pauses vérifiées peuvent être supprimées, et le bilan le signale.
 
 ## Montage complet en un clic
 
@@ -12,7 +25,7 @@ Dans le studio local configuré, importer les rushs, autoriser l’envoi de l’
 2. Décision éditoriale : supprimer les reprises, doublons accidentels et hésitations isolées, conserver les idées et leur ordre.
 3. Détection des pauses dans le son, avec vérification qu’aucun mot conservé ne les traverse.
 4. Recalcul des temps après les coupes, puis choix des titres, cartons, étapes, comparaisons, cartes d’idées et chiffres selon le discours conservé.
-5. Application des animations et de zooms légers aux changements de plan ; export avec le son et le motion design.
+5. Application des scènes animées, ou d’animations et de zooms légers en mode filmé ; export avec le son et le motion design.
 
 Le serveur vérifie les horodatages contre les pauses audio. Un mot qui traverse une longue pause déclenche une nouvelle transcription par portions (quatre points de séparation maximum). Il vérifie aussi que les coupes de reprises conservent les termes principaux dans une autre version et qu’une hésitation ne supprime que des sons de remplissage. Les indices des scènes sont bornés aux mots disponibles. Les plans de coupe et d’animation invalides reçoivent chacun une tentative de correction, puis sont validés à nouveau avant application. Ces contrôles réduisent les erreurs ; ils ne garantissent pas une interprétation parfaite du discours.
 
@@ -20,12 +33,12 @@ Un bilan indique les coupes appliquées et les animations créées. **Annuler ce
 
 ## Disponible sans service IA
 
-- Import local de vidéos, aperçu avec son et export MP4 ou WebM selon le navigateur.
+- Import local de vidéos et de fichiers audio, aperçu avec son et export MP4 ou WebM selon le navigateur.
 - Cuts automatiques sur les pauses audio, rythme naturel ou dynamique, marges autour de la parole et zooms légers facultatifs.
 - Réglage manuel, suppression d’un passage, réorganisation, annuler/rétablir.
 - Plusieurs animations : mots éditoriaux avec accent violet en italique, cartons dégradés, titres et bandeaux.
 - Schémas animés : étapes avec flèches, comparaison, idées reliées, chiffre clé. Chaque bloc a son texte et son instant d’apparition.
-- Formats paysage, vertical et carré ; sauvegarde et ouverture du projet JSON. Réimporter les vidéos originales à la réouverture.
+- Formats paysage, vertical et carré ; sauvegarde et ouverture du projet JSON. Réimporter les fichiers originaux à la réouverture.
 - Exemple pré-écrit accessible depuis « Voir un exemple de schéma », sans import et sans API.
 
 ## Motion design depuis la voix — connexion requise
@@ -37,7 +50,7 @@ Le connecteur est implémenté et testé avec l’API. **La génération réelle
 3. Cliquer « Créer les visuels depuis ma voix ».
 4. Le navigateur reconstitue uniquement l’audio conservé dans le montage, en WAV mono 16 kHz.
 5. Le serveur transcrit les mots avec leurs temps, puis demande un plan visuel structuré basé sur le sens du discours.
-6. Les schémas sont placés sur ces temps ; les blocs apparaissent au mot concerné. Les titres et blocs restent modifiables. Une nouvelle génération remplace les anciens visuels IA et préserve les animations manuelles.
+6. Les schémas sont placés sur ces temps ; les blocs apparaissent au mot concerné. Les titres et blocs restent modifiables. En mode filmé, une nouvelle génération remplace les anciens visuels IA et préserve les animations manuelles ; en mode entièrement animé, elle remplace le storyboard complet.
 
 Choix visuels : une séquence pour des étapes ou causes explicites, une comparaison pour deux approches, une carte d’idées pour des liens, un chiffre clé seulement si la valeur est prononcée. Les réponses sont validées avant toute modification du projet. Les faits, libellés et timings doivent être relus : une IA peut mal transcrire ou mal résumer.
 
@@ -71,8 +84,8 @@ Le service Node doit être déployé séparément avec HTTPS, secrets d’enviro
 Contrat d’intégration :
 
 - `GET /api/health` → `{ready: boolean, localSession: boolean}`.
-- `POST /api/analyze`, `Authorization: Bearer <code privé>`, `Content-Type: audio/wav` → `{words, plan, duration}`.
-- `POST /api/montage?pace=natural` (ou `dynamic`), même authentification et WAV → `{sourceDuration, cuts, words, plan, duration}`. Les `cuts` utilisent les temps du montage envoyé ; `words` et `plan` utilisent les temps après les coupes. Le navigateur valide à nouveau le résultat avant de l’appliquer.
+- `POST /api/analyze?visualMode=motion` (ou `footage`, défaut API), `Authorization: Bearer <code privé>`, `Content-Type: audio/wav` → `{words, plan, duration}`.
+- `POST /api/montage?pace=natural&visualMode=motion` (`pace` : `natural`/`dynamic`, `visualMode` : `motion`/`footage`), même authentification et WAV → `{sourceDuration, cuts, words, plan, duration, warnings}`. Les `cuts` utilisent les temps du montage envoyé ; `words` et `plan` utilisent les temps après les coupes. Le navigateur valide à nouveau le résultat avant de l’appliquer.
 - Projet indépendant en JSON v1 (`project.mjs`) ; renderer partagé entre aperçu et export (`render.mjs`).
 
 ## Limites et vérification
@@ -95,3 +108,7 @@ Tests : pauses et marges, cuts et suppression, reprises, recalage des mots et sc
 Version 0.3.1 : suppression du blocage arbitraire à 350 Mo sur les sources vidéo, libération du précédent son décodé avant de lire la source suivante et prise en compte de l’annulation avant le décodage. Deux tests de régression couvrent une source déclarée à 1,4 Go et l’annulation de sa lecture ; 41 tests passent.
 
 Documentation utilisée : [transcription et horodatages](https://developers.openai.com/api/docs/guides/speech-to-text), [sorties structurées](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+Version 0.4.0 : 50 tests passent, dont couverture complète, absence de lecture des images sources dans le renderer animé, compatibilité des projets, synchronisation des blocs et conservation de la voix quand une coupe est douteuse. Un test réel dans le navigateur a généré deux scènes depuis une voix synthétique française de 9,075 secondes, produit puis téléchargé un MP4 H.264 1280×720 avec audio AAC (10 octobre 2026).
+
+Documentation du modèle utilisé pour le mode animé : [GPT-4.1](https://developers.openai.com/api/docs/models/gpt-4.1).

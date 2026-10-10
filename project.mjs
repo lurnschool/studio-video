@@ -1,4 +1,4 @@
-import {DIAGRAMS} from './motion-plan.mjs';
+import {DIAGRAMS} from './motion-plan.mjs?v=0.4.0';
 export const MIN_CLIP = 1 / 30;
 export const length = clip => clip.end - clip.start;
 export const duration = clips => clips.reduce((sum, clip) => sum + length(clip), 0);
@@ -48,6 +48,7 @@ export function validateProject(input) {
   const fail = () => { throw new Error('Ce fichier ne contient pas un projet Studio Vidéo valide.'); };
   const finite = n => typeof n === 'number' && Number.isFinite(n);
   if (!input || input.version !== 1 || !['16:9', '9:16', '1:1'].includes(input.format) || !Array.isArray(input.media) || !Array.isArray(input.clips) || !Array.isArray(input.motions) || input.media.length > 500 || input.clips.length > 1000 || input.motions.length > 200) fail();
+  if (input.visualMode !== undefined && !['footage','motion'].includes(input.visualMode)) fail();
   const media = new Map(); const ids = new Set();
   for (const item of input.media) {
     if (typeof item.id !== 'string' || media.has(item.id) || typeof item.name !== 'string' || !item.name || item.name.length > 500 || !finite(item.duration) || item.duration <= 0 || !finite(item.size) || item.size < 0) fail();
@@ -67,7 +68,7 @@ export function validateProject(input) {
     ids.add(motion.id);
   }
   return {
-    version: 1, format: input.format,
+    version: 1, format: input.format, visualMode: input.visualMode ?? 'footage',
     media: input.media.map(({ id, name, size, duration, lastModified }) => ({ id, name, size, duration, lastModified: finite(lastModified) ? lastModified : 0 })),
     clips: input.clips.map(({ id, mediaId, start, end, zoom }) => ({ id, mediaId, start, end, zoom: zoom ?? 1 })),
     motions: input.motions.map(({ id, text, preset, position, color, start, duration, accent, detail, nodes, origin }) => ({ id, text, preset, position, color, start, duration, accent: accent ?? '', detail: detail ?? '', nodes: (nodes || []).map(({label, detail, at}) => ({label, detail, at})), origin: origin || 'manual' })),
